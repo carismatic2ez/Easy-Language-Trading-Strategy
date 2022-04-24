@@ -1,0 +1,199 @@
+{
+    Strategy Details:
+    Symbol: UD4
+    Market 2: ---
+    Market 3: ---
+    Market 4: ---
+    Start Date: 20100907
+    Stop Date: 20210101
+    Out of Sample: 50 %
+    Fitness Function: WinPercentage
+    Profit Target On: No
+    Profit Multiple: 0
+    Stop Loss On: Yes
+    Stop Loss Multiple: 2
+    Highest High On: No
+    Highest High Lookback: 0
+    Lowest Low On: No
+    Lowest Low Lookback: 0
+    Max Time: 7
+    Profitable Closes: 2
+}
+
+inputs:
+    CombineSignals(0),  // 0 = all, +1 = long, -1 = short
+    Required4Entry(0),
+    Required4Exit(-99999),  // if signal count falls below this number it will exit
+    PT_ON(0),
+    SL_ON(1),
+    TL_ON(0),
+    HH_ON(0),
+    LL_ON(0),
+    Max_Time(7), 
+    Profitable_Closes(2),
+    ReadFiles(false), // set to true to read from file, false if all info is on open charts
+    atr_length(20),
+    hh_length(0),
+    ll_length(0),
+    pt_mult(0.00),
+    sl_mult(2.00),
+    tl_mult(0.00),
+    delay(0)
+    ;
+
+vars:
+    isIBOG(GetAppInfo(aiIntraBarOrder) = 1),
+    intrabarpersist mp(0),
+    intrabarpersist mpPrev(0),
+    intrabarpersist isClose(true),
+    intrabarpersist isOpen(false),
+    atr(0),
+    hh(0),
+    ll(0),
+    prof_x(0),
+    PT(0),
+    SL(0),
+    TL(0),
+    PS(0)
+    ;
+
+isOpen = (isClose = true);
+isClose = (BarStatus(1) <> 1);
+
+if isClose then begin
+    hh = Highest(High, hh_length);
+    ll = Lowest(Low, ll_length);
+    atr = AvgTrueRange(atr_length);
+end;
+
+PS = position_size("Fut", "Default", 50000, 0, atr, SL_ON * 2.00);
+
+mpPrev = mp;
+mp = MarketPosition;
+
+// ------------------------------------------
+//  Exits
+//
+if mp = +1 then begin
+
+    TL = Round2Fraction(Close[0] - atr[0] * tl_mult);
+    If BarsSinceEntry > 0 and TL < TL[1] then TL = TL[1];
+
+    if BarsSinceEntry = 0 or mp <> mpPrev then begin
+        //PT = Round2Fraction(Close[0] + atr[0] * pt_mult);
+        //SL = Round2Fraction(Close[0] - atr[0] * sl_mult);
+        //TL = Round2Fraction(Close[0] - atr[0] * tl_mult);
+        prof_x = 0;
+    end;
+
+    // Profitable closes
+    if isClose and Close >= EntryPrice then
+        prof_x += 1;
+    if BarsSinceEntry < Max_Time-1 and Profitable_Closes > 0 and prof_x >= Profitable_Closes then begin
+        Sell ("ProfX") all contracts next bar market;
+        PT = Round2Fraction(Close[0] + atr[0] * pt_mult);
+        SL = Round2Fraction(Close[0] - atr[0] * sl_mult);
+        TL = Round2Fraction(Close[0] - atr[0] * tl_mult);
+    end;
+    // Max bars in trade
+    if BarsSinceEntry >= Max_Time-1 then begin
+        Sell ("TimeX") all contracts next bar market;
+        PT = Round2Fraction(Close[0] + atr[0] * pt_mult);
+        SL = Round2Fraction(Close[0] - atr[0] * sl_mult);
+        TL = Round2Fraction(Close[0] - atr[0] * tl_mult);
+        prof_x = 0;
+    end;
+
+    // Highest high
+    if HH_ON = 1 then
+        if isIBOG then
+            Sell ("HHx ") all contracts next bar hh[1] limit
+        else
+            Sell ("HHx") all contracts next bar hh limit;
+
+    // Lowest Low
+    if LL_ON = 1 then
+        if isIBOG then
+            Sell ("LLx ") all contracts next bar ll[1] stop
+        else
+            Sell ("LLx") all contracts next bar ll stop;
+
+    // Profit Target
+    if PT_ON = 1 then
+        Sell ("PTx") all contracts next bar PT limit;
+    if PT_ON = 2 then
+        setprofittarget(pt_mult);
+
+    // Stop Loss
+    if SL_ON = 1 then
+        Sell ("SLx") all contracts next bar SL stop;
+    if SL_ON = 2 then
+        setstoploss(sl_mult);
+
+    // Trail Loss
+    If TL_ON = 1 then
+        Sell ("TLx") all contracts next bar TL stop;
+    If TL_ON = 2 then
+        setdollartrailing(tl_mult);
+
+    // Force End of Day
+    //  if Time >= 1700 then Sell ("EODx") all contracts next bar market;
+
+    // Signal Exit
+    //If BarsSinceEntry < Max_Time-1 and  then begin
+    //    Sell ("SigX") all contracts next bar market;
+    //    PT = Round2Fraction(Close[0] + atr[0] * pt_mult);
+    //    SL = Round2Fraction(Close[0] - atr[0] * sl_mult);
+    //    TL = Round2Fraction(Close[0] - atr[0] * tl_mult);
+    //    prof_x = 0;
+    //end;
+
+end else
+    if mp = -1 then begin
+end;
+
+// -----------------------------------------
+//  entry
+//
+if isClose then begin
+    condition1 = (Date[0]>1100907 or (Date[0]=1100907 and Time[0]>=1900)) and
+Time[0] >= 1100 and Time[0] <= 1700 and volume[8] >= average(volume,5)[10] and AvgTrueRange(20)[5] > AvgTrueRange(30)[1] ;
+end;
+
+if isClose and condition1[delay] then begin
+    Buy ("V2") PS contract next bar market;
+
+    if mp = 0 and isIBOG = false then begin
+
+        PT = Round2Fraction(Close[0] + atr[0] * pt_mult);
+        SL = Round2Fraction(Close[0] - atr[0] * sl_mult);
+        TL = Round2Fraction(Close[0] - atr[0] * tl_mult);
+
+        // Profit target
+        if PT_ON = 1 then
+            Sell ("PTx1") all contracts next bar PT limit;
+        if PT_ON = 2 then
+            setprofittarget(pt_mult);
+
+        // Stop loss
+        if SL_ON = 1 then
+            Sell ("SLx1") all contracts next bar SL stop;
+        if SL_ON = 2 then
+            setstoploss(sl_mult);
+
+        // Trail Loss
+        If TL_ON = 1 then
+            Sell ("TLx1") all contracts next bar TL stop;
+        If TL_ON = 2 then
+            setdollartrailing(tl_mult);
+
+        // Highest high
+        if HH_ON = 1 then
+            Sell ("HHx1") all contracts next bar hh limit;
+
+        // Lowest Low
+        if LL_ON = 1 then
+            Sell ("LLx1") all contracts next bar ll stop;
+    end;
+end;
+
